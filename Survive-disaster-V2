@@ -1,0 +1,724 @@
+--[[
+    =====================================================
+    Survive Disaster for Brainrots and Fish! - Hub v2
+    Script by: Chat AI (Deep Flow)
+    Platform: Android (Mobile Executor)
+    =====================================================
+    Features:
+    1. Auto Farm (Coins/Cash)
+    2. Auto Rebirth
+    3. Remove Disaster
+    4. Auto Take Brainrot & Fish
+    5. God Mode
+    6. Instant Take
+    =====================================================
+]]
+
+-- // Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:WaitForChild("Humanoid")
+
+-- // Settings
+local Settings = {
+    AutoFarm = false,
+    AutoRebirth = false,
+    RemoveDisaster = false,
+    AutoTakeBrainrotFish = false,
+    GodMode = false,
+    InstantTake = false,
+}
+
+-- // Cache Remotes
+local Remotes = {}
+local function CacheRemotes()
+    Remotes = {}
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") or v:IsA("BindableEvent") then
+            Remotes[v.Name:lower()] = v
+        end
+    end
+    -- Also check game folders
+    for _, folder in pairs({Workspace, ReplicatedStorage, game:GetService("Players")}) do
+        for _, v in pairs(folder:GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                Remotes[v.Name:lower()] = v
+            end
+        end
+    end
+end
+CacheRemotes()
+
+-- // Reconnect on respawn
+Player.CharacterAdded:Connect(function(char)
+    Character = char
+    HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
+    Humanoid = char:WaitForChild("Humanoid")
+    task.wait(0.5)
+    CacheRemotes()
+    if Settings.GodMode then
+        ApplyGodMode()
+    end
+end)
+
+-- =====================================================
+-- // UTILITY FUNCTIONS
+-- =====================================================
+
+local function FireAllRemotes(keyword, ...)
+    local args = {...}
+    for name, remote in pairs(Remotes) do
+        if name:find(keyword:lower()) then
+            pcall(function()
+                if remote:IsA("RemoteEvent") then
+                    remote:FireServer(unpack(args))
+                elseif remote:IsA("RemoteFunction") then
+                    remote:InvokeServer(unpack(args))
+                end
+            end)
+        end
+    end
+end
+
+local function TweenTo(pos, speed)
+    if not HumanoidRootPart or not HumanoidRootPart.Parent then return false end
+    speed = speed or 0.2
+    local dist = (HumanoidRootPart.Position - pos).Magnitude
+    local time = math.clamp(dist / 200, 0.05, speed)
+    local tween = TweenService:Create(
+        HumanoidRootPart,
+        TweenInfo.new(time, Enum.EasingStyle.Linear),
+        {CFrame = CFrame.new(pos)}
+    )
+    tween:Play()
+    tween.Completed:Wait()
+    return true
+end
+
+local function InstantTP(pos)
+    if HumanoidRootPart and HumanoidRootPart.Parent then
+        HumanoidRootPart.CFrame = CFrame.new(pos)
+    end
+end
+
+local function TouchPart(part)
+    if not part or not part.Parent then return end
+    pcall(function()
+        firetouchinterest(HumanoidRootPart, part, 0)
+        task.wait()
+        firetouchinterest(HumanoidRootPart, part, 1)
+    end)
+end
+
+local function ClickDetectorClick(obj)
+    pcall(function()
+        local cd = obj:FindFirstChildWhichIsA("ClickDetector", true)
+        if cd then
+            fireclickdetector(cd)
+        end
+    end)
+end
+
+local function GetPartPosition(obj)
+    if obj:IsA("BasePart") then
+        return obj.Position
+    elseif obj:IsA("Model") then
+        if obj.PrimaryPart then return obj.PrimaryPart.Position end
+        local p = obj:FindFirstChildWhichIsA("BasePart", true)
+        if p then return p.Position end
+    end
+    return nil
+end
+
+local function InteractWithObject(obj)
+    if not obj or not obj.Parent then return end
+    -- Touch all parts
+    pcall(function()
+        if obj:IsA("BasePart") then
+            TouchPart(obj)
+        end
+        for _, part in pairs(obj:GetDescendants()) do
+            if part:IsA("BasePart") then
+                TouchPart(part)
+            end
+        end
+    end)
+    -- Click detector
+    ClickDetectorClick(obj)
+    -- Proximity prompt
+    pcall(function()
+        for _, pp in pairs(obj:GetDescendants()) do
+            if pp:IsA("ProximityPrompt") then
+                fireproximityprompt(pp)
+            end
+        end
+        if obj:IsA("BasePart") or obj:IsA("Model") then
+            local pp = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if pp then
+                fireproximityprompt(pp)
+            end
+        end
+    end)
+end
+
+-- =====================================================
+-- // MOBILE GUI v2
+-- =====================================================
+local function CreateGUI()
+    if Player.PlayerGui:FindFirstChild("DisasterHubV2") then
+        Player.PlayerGui.DisasterHubV2:Destroy()
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "DisasterHubV2"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent = Player.PlayerGui
+
+    -- Main Frame
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "Main"
+    MainFrame.Size = UDim2.new(0, 280, 0, 390)
+    MainFrame.Position = UDim2.new(0.5, -140, 0.5, -195)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+    local Stroke = Instance.new("UIStroke", MainFrame)
+    Stroke.Color = Color3.fromRGB(120, 60, 255)
+    Stroke.Thickness = 2
+    Stroke.Transparency = 0.3
+
+    -- Title
+    local Title = Instance.new("Frame", MainFrame)
+    Title.Size = UDim2.new(1, 0, 0, 42)
+    Title.BackgroundColor3 = Color3.fromRGB(30, 30, 48)
+    Title.BorderSizePixel = 0
+    Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 12)
+
+    local TitleText = Instance.new("TextLabel", Title)
+    TitleText.Size = UDim2.new(1, -50, 1, 0)
+    TitleText.Position = UDim2.new(0, 12, 0, 0)
+    TitleText.BackgroundTransparency = 1
+    TitleText.Text = "🌪️ Disaster Hub v2"
+    TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TitleText.TextSize = 15
+    TitleText.Font = Enum.Font.GothamBold
+    TitleText.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- Close/Min button
+    local CloseBtn = Instance.new("TextButton", Title)
+    CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+    CloseBtn.Position = UDim2.new(1, -38, 0, 5)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    CloseBtn.Text = "—"
+    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseBtn.TextSize = 16
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.BorderSizePixel = 0
+    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 8)
+
+    -- Scroll Frame for content
+    local Scroll = Instance.new("ScrollingFrame", MainFrame)
+    Scroll.Size = UDim2.new(1, -16, 1, -56)
+    Scroll.Position = UDim2.new(0, 8, 0, 48)
+    Scroll.BackgroundTransparency = 1
+    Scroll.BorderSizePixel = 0
+    Scroll.ScrollBarThickness = 4
+    Scroll.ScrollBarImageColor3 = Color3.fromRGB(120, 60, 255)
+    Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+    local UIList = Instance.new("UIListLayout", Scroll)
+    UIList.Padding = UDim.new(0, 6)
+    UIList.SortOrder = Enum.SortOrder.LayoutOrder
+
+    -- Toggle creator
+    local function MakeToggle(name, emoji, order, callback)
+        local Frame = Instance.new("Frame", Scroll)
+        Frame.Size = UDim2.new(1, -8, 0, 44)
+        Frame.BackgroundColor3 = Color3.fromRGB(28, 28, 42)
+        Frame.BorderSizePixel = 0
+        Frame.LayoutOrder = order
+        Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+
+        local Label = Instance.new("TextLabel", Frame)
+        Label.Size = UDim2.new(1, -70, 1, 0)
+        Label.Position = UDim2.new(0, 10, 0, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = emoji .. " " .. name
+        Label.TextColor3 = Color3.fromRGB(210, 210, 230)
+        Label.TextSize = 13
+        Label.Font = Enum.Font.GothamSemibold
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+
+        local Btn = Instance.new("TextButton", Frame)
+        Btn.Size = UDim2.new(0, 52, 0, 28)
+        Btn.Position = UDim2.new(1, -60, 0.5, -14)
+        Btn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+        Btn.Text = "OFF"
+        Btn.TextColor3 = Color3.fromRGB(255, 90, 90)
+        Btn.TextSize = 11
+        Btn.Font = Enum.Font.GothamBold
+        Btn.BorderSizePixel = 0
+        Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+
+        local on = false
+        Btn.MouseButton1Click:Connect(function()
+            on = not on
+            Btn.Text = on and "ON" or "OFF"
+            Btn.TextColor3 = on and Color3.fromRGB(90, 255, 120) or Color3.fromRGB(255, 90, 90)
+            Btn.BackgroundColor3 = on and Color3.fromRGB(30, 90, 40) or Color3.fromRGB(60, 60, 80)
+            callback(on)
+        end)
+    end
+
+    -- Create all toggles
+    MakeToggle("Auto Farm", "💰", 1, function(s) Settings.AutoFarm = s end)
+    MakeToggle("Auto Rebirth", "🔄", 2, function(s) Settings.AutoRebirth = s end)
+    MakeToggle("Remove Disaster", "🛡️", 3, function(s) Settings.RemoveDisaster = s end)
+    MakeToggle("Auto Take Brainrot/Fish", "🐟", 4, function(s) Settings.AutoTakeBrainrotFish = s end)
+    MakeToggle("God Mode", "⚡", 5, function(s)
+        Settings.GodMode = s
+        if s then ApplyGodMode() end
+    end)
+    MakeToggle("Instant Take", "⚡", 6, function(s) Settings.InstantTake = s end)
+
+    -- Status
+    local Status = Instance.new("TextLabel", Scroll)
+    Status.Size = UDim2.new(1, 0, 0, 25)
+    Status.BackgroundTransparency = 1
+    Status.Text = "Status: Ready"
+    Status.TextColor3 = Color3.fromRGB(130, 130, 170)
+    Status.TextSize = 11
+    Status.Font = Enum.Font.Gotham
+    Status.LayoutOrder = 10
+
+    -- Open button (when minimized)
+    local OpenBtn = Instance.new("TextButton", ScreenGui)
+    OpenBtn.Size = UDim2.new(0, 52, 0, 52)
+    OpenBtn.Position = UDim2.new(0, 10, 0.4, 0)
+    OpenBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 255)
+    OpenBtn.Text = "🌪️"
+    OpenBtn.TextSize = 24
+    OpenBtn.BorderSizePixel = 0
+    OpenBtn.Visible = false
+    OpenBtn.Draggable = true
+    Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(1, 0)
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        MainFrame.Visible = false
+        OpenBtn.Visible = true
+    end)
+    OpenBtn.MouseButton1Click:Connect(function()
+        MainFrame.Visible = true
+        OpenBtn.Visible = false
+    end)
+
+    return Status
+end
+
+-- =====================================================
+-- // GOD MODE
+-- =====================================================
+function ApplyGodMode()
+    pcall(function()
+        if not Character or not Humanoid then return end
+
+        -- Method 1: Direct health manipulation
+        Humanoid.MaxHealth = math.huge
+        Humanoid.Health = math.huge
+
+        -- Method 2: Remove humanoid death connection
+        for _, conn in pairs(getconnections(Humanoid.Died)) do
+            pcall(function() conn:Disable() end)
+        end
+
+        -- Method 3: Force field
+        if not Character:FindFirstChildOfClass("ForceField") then
+            local ff = Instance.new("ForceField", Character)
+            ff.Visible = false
+            ff.Name = "GodModeFF"
+        end
+    end)
+end
+
+-- =====================================================
+-- // FIND GAME OBJECTS SMART
+-- =====================================================
+
+local function FindObjectsByKeywords(keywords, excludeKeywords)
+    local results = {}
+    excludeKeywords = excludeKeywords or {}
+
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        local name = obj.Name:lower()
+        local matched = false
+        local excluded = false
+
+        for _, kw in pairs(keywords) do
+            if name:find(kw:lower()) then
+                matched = true
+                break
+            end
+        end
+
+        for _, ekw in pairs(excludeKeywords) do
+            if name:find(ekw:lower()) then
+                excluded = true
+                break
+            end
+        end
+
+        if matched and not excluded then
+            table.insert(results, obj)
+        end
+    end
+
+    return results
+end
+
+local function FindNearestFrom(objects)
+    if not HumanoidRootPart or not HumanoidRootPart.Parent then return nil, math.huge end
+    local nearest, minDist = nil, math.huge
+    for _, obj in pairs(objects) do
+        if obj and obj.Parent then
+            local pos = GetPartPosition(obj)
+            if pos then
+                local d = (pos - HumanoidRootPart.Position).Magnitude
+                if d < minDist then
+                    minDist = d
+                    nearest = obj
+                end
+            end
+        end
+    end
+    return nearest, minDist
+end
+
+-- =====================================================
+-- // AUTO FARM LOOP (Improved)
+-- =====================================================
+task.spawn(function()
+    while task.wait(0.05) do
+        if Settings.AutoFarm and Character and HumanoidRootPart and HumanoidRootPart.Parent then
+            pcall(function()
+                -- Search for coins/cash/money collectibles
+                local collectibles = FindObjectsByKeywords(
+                    {"coin", "cash", "money", "gold", "gem", "orb", "drop", "collect", "pickup", "reward", "dollar", "point"},
+                    {"shop", "gui", "ui", "button", "safe", "spawn", "lobby"}
+                )
+
+                -- Also find parts with TouchTransmitter
+                for _, obj in pairs(Workspace:GetDescendants()) do
+                    if obj:IsA("TouchTransmitter") and obj.Parent and obj.Parent:IsA("BasePart") then
+                        local name = obj.Parent.Name:lower()
+                        local dominated = false
+                        for _, c in pairs(collectibles) do
+                            if c == obj.Parent then dominated = true break end
+                        end
+                        if not dominated then
+                            table.insert(collectibles, obj.Parent)
+                        end
+                    end
+                end
+
+                local nearest, dist = FindNearestFrom(collectibles)
+
+                if nearest then
+                    local pos = GetPartPosition(nearest)
+                    if pos then
+                        if Settings.InstantTake then
+                            InstantTP(pos)
+                        else
+                            TweenTo(pos, 0.3)
+                        end
+                        task.wait(0.05)
+                        InteractWithObject(nearest)
+                    end
+
+                    if StatusLabel then
+                        StatusLabel.Text = "Farming: " .. #collectibles .. " items found"
+                    end
+                end
+
+                -- Also fire remote events related to collecting
+                FireAllRemotes("collect")
+                FireAllRemotes("claim")
+                FireAllRemotes("pickup")
+                FireAllRemotes("getcoin")
+                FireAllRemotes("getmoney")
+            end)
+        end
+    end
+end)
+
+-- =====================================================
+-- // AUTO REBIRTH LOOP (Improved)
+-- =====================================================
+task.spawn(function()
+    while task.wait(0.5) do
+        if Settings.AutoRebirth then
+            pcall(function()
+                -- Fire all rebirth-related remotes with various argument patterns
+                local rebirthKeywords = {"rebirth", "reborn", "prestige", "ascend", "evolve", "rankup", "rank_up"}
+
+                for _, kw in pairs(rebirthKeywords) do
+                    FireAllRemotes(kw)
+                    FireAllRemotes(kw, true)
+                    FireAllRemotes(kw, Player)
+                    FireAllRemotes(kw, "rebirth")
+                    FireAllRemotes(kw, 1)
+                end
+
+                -- Try to interact with rebirth zones/pads in workspace
+                local rebirthObjects = FindObjectsByKeywords(
+                    {"rebirth", "reborn", "prestige", "ascend"},
+                    {"shop", "gui"}
+                )
+
+                for _, obj in pairs(rebirthObjects) do
+                    local pos = GetPartPosition(obj)
+                    if pos then
+                        if Settings.InstantTake then
+                            InstantTP(pos)
+                        else
+                            TweenTo(pos, 0.3)
+                        end
+                        task.wait(0.1)
+                        InteractWithObject(obj)
+                    end
+                end
+
+                -- Try clicking GUI rebirth buttons
+                for _, gui in pairs(Player.PlayerGui:GetDescendants()) do
+                    if (gui:IsA("TextButton") or gui:IsA("ImageButton")) then
+                        local name = gui.Name:lower()
+                        local txt = ""
+                        if gui:IsA("TextButton") then txt = gui.Text:lower() end
+                        if name:find("rebirth") or txt:find("rebirth") or name:find("reborn") or txt:find("reborn") then
+                            pcall(function()
+                                fireclick(gui)
+                            end)
+                        end
+                    end
+                end
+
+                if StatusLabel then
+                    StatusLabel.Text = "Status: Rebirth attempt..."
+                end
+            end)
+        end
+    end
+end)
+
+-- =====================================================
+-- // REMOVE DISASTER LOOP (Improved)
+-- =====================================================
+task.spawn(function()
+    while task.wait(0.3) do
+        if Settings.RemoveDisaster then
+            pcall(function()
+                local disasterKeywords = {
+                    "disaster", "flood", "fire", "tornado", "meteor",
+                    "earthquake", "tsunami", "lava", "acid", "bomb",
+                    "explosion", "lightning", "storm", "boulder", "spike",
+                    "danger", "hazard", "poison", "nuke", "sandstorm",
+                    "blizzard", "volcano", "rain", "wave", "falling",
+                    "destroy", "kill", "damage", "harmful", "deadly",
+                    "projectile", "bullet", "arrow", "rock", "debris"
+                }
+
+                local safeKeywords = {"safe", "spawn", "lobby", "shop", "gui", "camera", "player", "character"}
+                local removed = 0
+
+                for _, obj in pairs(Workspace:GetDescendants()) do
+                    local name = obj.Name:lower()
+                    local isDisaster = false
+                    local isSafe = false
+
+                    for _, kw in pairs(disasterKeywords) do
+                        if name:find(kw) then isDisaster = true break end
+                    end
+                    for _, kw in pairs(safeKeywords) do
+                        if name:find(kw) then isSafe = true break end
+                    end
+
+                    if isDisaster and not isSafe then
+                        pcall(function()
+                            if obj:IsA("BasePart") then
+                                obj.Anchored = true
+                                obj.CanCollide = false
+                                obj.CanTouch = false
+                                obj.Tr                pcall(function()
+                    if obj:IsA("BasePart") then
+                        obj.Anchored = true
+                        obj.CanCollide = false
+                        obj.CanTouch = false
+                        obj.Transparency = 1
+                        obj.Position = Vector3.new(9e9, 9e9, 9e9)
+                        obj.Size = Vector3.new(0, 0, 0)
+                    elseif obj:IsA("Model") then
+                        for _, p in pairs(obj:GetDescendants()) do
+                            if p:IsA("BasePart") then
+                                p.Anchored = true
+                                p.CanCollide = false
+                                p.CanTouch = false
+                                p.Transparency = 1
+                                p.Position = Vector3.new(9e9, 9e9, 9e9)
+                            end
+                        end
+                        pcall(function() obj:Destroy() end)
+                    elseif obj:IsA("ParticleEmitter") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Explosion") then
+                        pcall(function() obj:Destroy() end)
+                    elseif obj:IsA("Script") then
+                        obj.Disabled = true
+                    end
+                end)
+                break
+            end
+        end
+    end
+
+    -- Auto interact with new brainrot/fish spawns
+    if Settings.AutoTakeBrainrotFish then
+        local name = obj.Name:lower()
+        local brainrotKeywords = {
+            "brainrot", "brain", "fish", "skibidi", "sigma", "rizz",
+            "gyatt", "ohio", "fanum", "mewing", "aura", "pet",
+            "egg", "crate", "chest", "loot", "creature", "catch"
+        }
+        for _, kw in pairs(brainrotKeywords) do
+            if name:find(kw) then
+                pcall(function()
+                    local pos = GetPartPosition(obj)
+                    if pos and HumanoidRootPart and HumanoidRootPart.Parent then
+                        if Settings.InstantTake then
+                            InstantTP(pos)
+                        else
+                            TweenTo(pos, 0.15)
+                        end
+                        task.wait(0.05)
+                        InteractWithObject(obj)
+                    end
+                end)
+                break
+            end
+        end
+    end
+end)
+
+-- =====================================================
+-- // ANTI-AFK
+-- =====================================================
+task.spawn(function()
+    local VIM = game:GetService("VirtualInputManager")
+    while task.wait(60) do
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+            task.wait(0.1)
+            VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+        end)
+    end
+end)
+
+-- =====================================================
+-- // ANTI-IDLE KICK
+-- =====================================================
+pcall(function()
+    local vu = game:GetService("VirtualUser")
+    Player.Idled:Connect(function()
+        vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    end)
+end)
+
+-- =====================================================
+-- // REMOTE SPY HELPER (Auto-detect game remotes)
+-- =====================================================
+task.spawn(function()
+    task.wait(3)
+    pcall(function()
+        local detectedRemotes = {}
+        for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                table.insert(detectedRemotes, v.Name)
+            end
+        end
+        print("[Disaster Hub v2] Detected " .. #detectedRemotes .. " remotes:")
+        for i, name in pairs(detectedRemotes) do
+            print("  " .. i .. ". " .. name)
+        end
+    end)
+end)
+
+-- =====================================================
+-- // REMOTE CACHE REFRESHER
+-- =====================================================
+task.spawn(function()
+    while task.wait(10) do
+        pcall(function()
+            CacheRemotes()
+        end)
+    end
+end)
+
+-- =====================================================
+-- // INITIALIZE GUI
+-- =====================================================
+StatusLabel = CreateGUI()
+
+-- =====================================================
+-- // NOTIFICATION
+-- =====================================================
+pcall(function()
+    StarterGui:SetCore("SendNotification", {
+        Title = "🌪️ Disaster Hub v2",
+        Text = "Loaded! Game: Survive Disaster for Brainrots and Fish!",
+        Duration = 5
+    })
+end)
+
+task.wait(1)
+
+pcall(function()
+    StarterGui:SetCore("SendNotification", {
+        Title = "📋 Features",
+        Text = "Auto Farm | Auto Rebirth | Remove Disaster | Auto Take | God Mode | Instant Take",
+        Duration = 5
+    })
+end)
+
+-- =====================================================
+-- // CONSOLE LOG
+-- =====================================================
+print("============================================")
+print("  🌪️ Disaster Hub v2 - Loaded Successfully!")
+print("  Game: Survive Disaster for Brainrots and Fish!")
+print("============================================")
+print("  Features:")
+print("  💰 Auto Farm - Collect coins automatically")
+print("  🔄 Auto Rebirth - Auto rebirth when available")
+print("  🛡️ Remove Disaster - Remove all disasters")
+print("  🐟 Auto Take Brainrot/Fish - Auto collect")
+print("  ⚡ God Mode - Infinite health + shield")
+print("  ⚡ Instant Take - Instant teleport & collect")
+print("  🔄 Anti-AFK - Stay in game forever")
+print("============================================")
+print("  Tip: Check Output for detected remotes")
+print("  to fine-tune the script if needed.")
+print("============================================")
